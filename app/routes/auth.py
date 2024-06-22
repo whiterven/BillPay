@@ -1,41 +1,41 @@
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import UserMixin
+from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask_login import login_user, logout_user, login_required
+from app.models import db, User
+from werkzeug.security import generate_password_hash, check_password_hash
 
-db = SQLAlchemy()
+auth = Blueprint('auth', __name__)
 
-class User(db.Model, UserMixin):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
-    plaid_access_token = db.Column(db.String(255), nullable=True)
-    plaid_item_id = db.Column(db.String(255), nullable=True)
-    transactions = db.relationship('Transaction', backref='user', lazy=True)
-    accounts = db.relationship('Account', backref='user', lazy=True)
+@auth.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        user = User.query.filter_by(email=email).first()
+        if user and check_password_hash(user.password, password):
+            login_user(user)
+            return redirect(url_for('main.index'))
+        flash('Invalid email or password')
+    return render_template('login.html')
 
-class Account(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    account_id = db.Column(db.String(255), nullable=False)
-    name = db.Column(db.String(255), nullable=False)
-    account_type = db.Column(db.String(255), nullable=False)
-    balance = db.Column(db.Float, nullable=True)
+@auth.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        if not username or not email or not password:
+            flash('Please fill in all fields')
+            return redirect(url_for('auth.register'))
+        hashed_password = generate_password_hash(password)
+        new_user = User(username=username, email=email, password=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+        login_user(new_user)
+        return redirect(url_for('main.index'))
+    return render_template('register.html')
 
-class Transaction(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    transaction_id = db.Column(db.String(255), nullable=False)
-    date = db.Column(db.DateTime, nullable=False)
-    name = db.Column(db.String(255), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    account_id = db.Column(db.String(255), nullable=False)  # Bank Account ID
-
-class ScheduledPayment(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    payee = db.Column(db.String(255), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    next_payment_date = db.Column(db.DateTime, nullable=False)
-    frequency = db.Column(db.String(20), nullable=False)  # 'daily', 'weekly', 'monthly'
-    account_id = db.Column(db.String(255), nullable=False)  # Bank Account ID
-    status = db.Column(db.String(20), nullable=False, default='pending')  # 'pending', 'completed', 'failed'
+@auth.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('auth.login'))
